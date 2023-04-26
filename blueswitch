@@ -1,0 +1,677 @@
+#! /bin/bash
+#
+# blueswitch 1.2.1 (Beta)
+#
+# Dates: 2023-04-12, 2023-04-14, 2023-04-17, 2023-04-20, 2023-04-26
+#
+# Purpose: Connects to a not connected Bluetooth device or disconnects
+# from a connected device.
+#
+# I got the idea to write this script from a public Facebook post by
+# Ernesto Caldera on March 21, 2023, in which he asks how to write a
+# script that he would like to launch with a click from his desktop
+# under LUbuntu 18.04, thereby alternately connecting and disconnecting
+# a particular Bluetooth device, as with an on/off switch.
+#
+# Run Information: This script is started manually in terminal or might
+#                  be connected to a starter icon at desktop.
+#
+# Associated file:
+#
+# 	~/.bluetooth-devices  # A list of known devices and their MAC.
+#
+# Record format is:
+#
+# 	MAC_adddress=device_name
+#
+# For example:
+#
+# 	00:FC:53D:79:8A:22=Creative Stage Air
+# 	C8:F9:52:DE:E1:9A=JBL E500BT
+#
+# Field separator is an equals sign "=".
+#
+# Bernd Storck, https://www.facebook.com/BStLinux/
+#
+
+# Static Values:
+SCRIPT_NAME="blueswitch"
+SCRIPT_VERSION="1.2.1 (Beta)"
+DEVICES_FILE="$HOME/.bluetooth-devices"
+# DEVICES_FILE="$HOME/.blutmp"  # To be activated For development tests.
+if command -v update-alternatives > /dev/null; then
+	EDITOR="$(update-alternatives --get-selections | grep '^editor' | tr -s ' ' | cut -d' ' -f3)"
+fi
+
+# echo "$1"
+
+
+function writeDevicesFile {
+ # Tries to generate a devices file with lines like:
+ #
+ # 00:FC:3D:79:8A:22=Creative Stage Air
+ # C8:F9:52:DE:E1:9A=JBL E500BT
+ #
+
+ bluetoothctl devices |\
+ sed -e 's:^Device ::' -e 's: :=:' > "$DEVICES_FILE" # Datei schreiben
+
+ if [ ! -s "$DEVICES_FILE" ] && [ -z "$1" ]; then
+   scan4Devices 60
+   writeDevicesFile "stop"  # Datei schreiben.
+ else
+   cat   "$DEVICES_FILE"
+ fi
+}
+
+
+completeDevicesFile () {
+# Combines the content of the existing devices file with
+# currently new found devices in a new devices file.
+  scan4Devices 25
+
+  devices_list="$( ( bluetoothctl devices | sed -e 's:^Device ::' -e 's: :=:';
+                     grep -v '^#' "$DEVICES_FILE"
+                   ) | sort | uniq
+                 )"
+
+  echo "# Available for blueon and blueswitch
+$devices_list" > "$DEVICES_FILE"
+
+  inform_about_devices_file
+
+  PS3="$MENU_PROMPT"
+  select option in "$EDIT" "$END"
+  do
+     case "$REPLY"  in
+       1)
+        "$EDITOR" "$DEVICES_FILE"
+         break
+         ;;
+       2)
+         echo "$END"
+         break
+         ;;
+       *)
+         announce_Status "$INVALID_CHOICE" "$WARNING"
+     esac
+  done
+
+  clear
+  inform_about_devices_file
+
+}
+
+
+scan4Devices () {
+# Aktuell erreichbare Geraete suchen.
+  bluetoothctl scan on & BPID=$!
+  sleep "${1}s"
+  kill "$BPID"  # Suche beenden.
+  BPID=""
+}
+
+
+inform_about_devices_file () {
+  plotLine
+  device_rows="$( grep -v '^#' "$DEVICES_FILE" )" # | grep -iE '^[0-9A-F]{2}' )"
+  rows="$(wc -l <<< "$device_rows")"
+  echo "$(ls -1sh "$DEVICES_FILE") - $DEVICES: $rows"
+  echo "$line"
+  more "$DEVICES_FILE"
+  echo "$line"
+}
+
+
+hilfe () { #: German help text.
+  echo "
+$SCRIPT_NAME $SCRIPT_VERSION
+    \"$SCRIPT_NAME\" eine Bluetooth-Verbindung zu einem Gerät herstellen oder lösen.
+
+AUFRUFFORMATE:
+    $SCRIPT_NAME <MAC>
+    $SCRIPT_NAME --mac=<MAC>                          # Format: FF:FF:FF:FF:FF:FF
+    $SCRIPT_NAME --name=\"Anfang_des_Geraetenamens\"    # Mindestens zwei Zeichen lang!
+
+    $SCRIPT_NAME --complete=\"Kompletter Geraetename\"
+    $SCRIPT_NAME --complete --name=\"ganzer Geraetename\"
+
+    $SCRIPT_NAME --cutout=\"Namensteil\"
+    $SCRIPT_NAME --cutout --name=\"ein Namensteil\"
+
+    $SCRIPT_NAME [--list|-l]                          # Geräte in der Konfigurationsdatei anzeigen.
+    $SCRIPT_NAME [--edit|-e]                          # Die Konfigurationsdatei bearbeiten.
+    $SCRIPT_NAME [--write|-w]                         # Die Konfigurationsdatei erzeugen oder ergänzen.
+
+    $SCRIPT_NAME [--hilf|--help|-h]
+    $SCRIPT_NAME --examples                           # Zeigt einige Aufrufbeispiele an.
+    $SCRIPT_NAME [--version|-V|-#]
+
+$EXAMPLES
+
+AUFRUFPARAMETER:
+    --hilf  Zeigt die Hilfeseite an.
+    -#      Zeigt die Version von $SCRIPT_NAME an.
+    -l      Zeigt eine Liste der automatisch ermittelbaren Bluetooth-Geräte an.
+
+ALTERNATIVE SPRECHENDE AUFRUFPARAMETER:
+    -h    --help
+    -#    --version
+
+ \"--hilf\" erzwingt die Anzeige der deutschsprachigen Hilfe, \"-h\" und
+ \"--help\" machen sie von der Systemsprache abhängig, das heißt zeigen
+ eine deutschprachige nur an, wenn Deutsch die Systemsprache ist, sonst
+ wird die englischsprachige Hilfeseite angezeigt.
+
+KONFIGURATIONSDATEI
+ Im Benutzerverzeichnis kann eine Datei namens \".bluethooth-devices\"
+ angelegt werden. In jeder Zeile dieser Datei muss eine MAC-Adresse
+ stehen und hinter ihr durch ein Gleichheitszeichen getrennt der Name
+ des zugehoerigen Geraetes. In dieser Datei sollen solcherart die
+ gewoehnlich am aktuellen Rechner benutzten Geraete aufgelistet sein.
+ Das Datensatzformat in dieser Datei:
+
+ MAC-Adresse=Geraetename
+
+ Beispielsweise:
+
+ 00:FC:3D:79:8A:22=Creative Stage Air
+ C8:F9:52:DE:E1:9A=JBL E500BT
+
+ Feldtrenner ist ein Gleichheitszeichen \"=\".
+
+ Der Programmaufruf \"$SCRIPT_NAME --name='crea'\" würde in obiger Liste
+ auf die Zeile zielen, deren Gerätenamensangabe mit \"Crea\" beginnt,
+ und zwar die erste Zeile, in welcher der Gerätenamensanfang mit dem
+ ersten Aufrufparameter, hier \"crea\", übereinstimmt, und zwar
+ unabhängig von Groß- und Kleinschreibung.
+
+" | more
+}
+
+help () { #: English help text.
+  echo "
+$SCRIPT_NAME $SCRIPT_VERSION
+    \"$SCRIPT_NAME\" - Establishes or terminates a Bluetooth connection to a device.
+
+CALL:
+    $SCRIPT_NAME <MAC>
+    $SCRIPT_NAME --mac=<MAC>                            # Format: FF:FF:FF:FF:FF:FF
+
+    $SCRIPT_NAME --name=\"beginning_of_device_name\"      # At least two characters!
+
+    $SCRIPT_NAME --complete=\"complete device name\"         # Finds only complete names.
+    $SCRIPT_NAME --complete --name=\"complete device name\"  # Like the previous call.
+
+    $SCRIPT_NAME --cutout=\"<part of the name>\"           # Takes 1st with given string in its name.
+    $SCRIPT_NAME --cutout --name=\"stage\"                 # Like the previous call.
+
+    $SCRIPT_NAME [--list|-l]                            # Lists content of the configuration file.
+    $SCRIPT_NAME [--edit|-e]                            # Edit / load the configuration in an editor.
+    $SCRIPT_NAME [--write|-w]                           # Write or complete the configuration file.
+
+    $SCRIPT_NAME [--help|-h|--hilf]
+    $SCRIPT_NAME --examples                             # Lists some examples.
+    $SCRIPT_NAME [--version|-V|-#|]
+
+$EXAMPLES
+
+PARAMETERS:
+    -h    Displays the help page.
+    -#    Displays ${SCRIPT_NAME}'s version.
+    -l    Displays a list of auto-discoverable Bluetooth devices.
+    -w    Adds the currentyl automatically discoverable Bluetooth devices
+          to the file \".bluetooth-devices\".
+
+ALTERNATIVE VERBOSE PARAMETERS
+    -h    --help
+    -#    --version
+
+ \"-h\" or \"--help\" is showing the help page dependent on the system's
+ language, i.e. the help page in German language will be shown, if the
+ system's language is German, otherwise the help page in English
+ language will appeare. \"--hilf\" forces the display of the German
+ language help.
+
+CONFIGURATION FILE
+ A file named \".bluethooth-devices\" might be created in the user
+ directory. To be taken in account this file has to begin with a
+ comment line containing the string \"blueswitch\", this line may
+ contain other characters. In each line of this file there must be
+ a MAC address and behind it, separated by an equal sign, the name
+ of the corresponding device. In this file the devices usually used
+ on the current computer might be listed. The record format is:
+
+ MAC address=<device_name>
+
+ For example:
+
+ 00:FC:3D:79:8A:22=Creative Stage Air
+ C8:F9:52:DE:E1:9A=JBL E500BT
+
+ Field separator is the equal sign \"=\".
+
+ The program call \"$SCRIPT_NAME --name='crea'\" would target the line in
+ the above list whose device name specification starts with \"Crea\",
+ namely the first line in which the beginning of the device name matches
+ the first call parameter, here \"crea\", regardless of upper and lower
+ case.
+
+" | more
+}
+
+
+plotLine () {
+  if [ -z "$1" ]; then
+    line_element='-'
+    line_lenght="$(tput cols)"
+  else
+    line_element="$1"
+    [ -z "$2" ] && line_lenght="$(tput cols)" || line_lenght="$2"
+  fi
+  line=
+  for i in $(seq "$line_lenght");
+  do
+    line="${line}$line_element"
+  done
+  echo "$line"
+}
+
+
+trim () { #: trims blanks and tabs from a string.
+# implements abstract usage of:
+#  deviceName="${deviceName#"${deviceName%%[![:blank:]]*}"}"
+#  deviceName="${deviceName%"${deviceName##*[![:blank:]]}"}"
+#
+#: Call: trim "variable_name"  # Without leading dollar sign!
+#
+  eval "trim_tmp=\$$1"
+  trim_tmp="${trim_tmp#"${trim_tmp%%[![:blank:]]*}"}"
+# eval "$1="\${trim_tmp%"${trim_tmp##*[![:blank:]]}"}""
+  "$1"="${trim_tmp%"${trim_tmp##*[![:blank:]]}"}"
+  unset -v trim_tmp
+}
+
+
+reduceSpaces () {
+# Removes leading and trailing blanks and tabs and
+# reduces any multiple blanks in the middle of the string
+# to a single blank.
+
+  eval "reduce_tmp=\$$1"
+  reduce_tmp="${reduce_tmp#"${reduce_tmp%%[![:blank:]]*}"}"
+  reduce_tmp="${reduce_tmp%"${reduce_tmp##*[![:blank:]]}"}"
+  reduce_tmp="$( tr -s ' ' <<< "$reduce_tmp" )"
+ 	eval "$1=\"$reduce_tmp\""
+  unset -v reduce_tmp
+}
+
+
+announce_Status () { #: Error or warning messages with highlight color.
+  [ -z "$2" ] && messageType="ERROR" || messageType="$2"
+  echo -e "\e[1;93m${messageType}: $1\e[0;m" > /dev/stderr
+}
+
+
+parse_modus_parameter () {
+#
+# This function serves as pre-parsing for get_MAC(). It handles the case
+# that the first command line parameter begins or is "--complete" or "--cutout"
+#
+# It results in
+#
+#   1. Setting the flag variable modus. modus differentiates
+#      how complete or exact the device name has to be given.
+#
+#   2. Setting the variable deviceIdentifier to a vlaue,
+#      which is a correct parameter "$1" for get_MAC().
+#
+#      get_MAC() needs a value like: --name="a device name".
+#
+#
+  # echo "\$1 before case: \"$1\""
+  # echo "begin of \$1: \"${1%%=*}\""
+
+  IdentifierStart="${firstPara%%=*}"  # left most characters before "=".
+
+  case "$IdentifierStart" in
+
+      --complete)   # device name has to be complete and correct
+                    # ignoring case-sensitivity.
+
+          modus="complete"
+
+          if grep -E '^-?-complete=' <<< "$firstPara" ; then
+            deviceIdentifier="$(sed -E 's:(-complete=):-name=:' <<< "$firstPara")"
+          else
+          echo "All parameters: $*"
+          echo "\$1 = \"$1\" (before shift)"
+            shift
+          echo "\$1 = \"$1\" (after shift)"
+          sleep 10s
+            deviceIdentifier="$1"
+          fi
+
+          ;;
+
+      --cutout)   # It's enough to give any part of the device name.
+
+          modus="cutout"
+
+          if grep -qE '^-?-cutout=' <<< "$firstPara" ; then
+            deviceIdentifier="$(sed -E 's:-cutout=:-name=:' <<< "$firstPara")"
+          else
+            shift
+            deviceIdentifier="$1"
+          fi
+
+          ;;
+
+      *)         # Default modus: any string will be matching, which
+                 # equals case insensitive the start of a device name.
+
+          deviceIdentifier="$firstPara"
+  esac
+}
+
+
+get_MAC () {  #: get MAC for the given device name:
+
+# echo "\$1 =\"$1\""
+
+  if [ -n "$1" ]; then
+    if grep -q -E '(--)name=' <<< "$1"; then
+      # was: deviceName="$(cut -d'=' -f2 <<< "$1")"
+      deviceName="${1##*=}"
+
+      # was: trim "deviceName"  # Removes leading and trailing tabs and blanks.
+      #      deviceName="$(tr -s ' ' <<< "$deviceName")"
+      reduceSpaces "deviceName"
+
+      if [ ${#deviceName} -lt 2 ]; then
+        announce_Status "String \"$deviceName\" is to short for being a device name."
+        exit 1
+      fi
+      case "$modus" in
+        cutout)
+            searched=".*$deviceName";;
+        complete)
+            searched="\b${deviceName}\$";;
+        *)
+            searched="\b$deviceName";;
+      esac
+      deviceMAC="$( bluetoothctl devices |\
+                    grep -iE "Device ([0-9A-F]{2}:){5}[0-9A-F]{2} $searched" |\
+                    grep --color=never -E -m1 -o '[:0-9A-Fa-f]{17}'
+                  )"
+
+      if [ -z "$deviceMAC" ]; then
+        announce_Status "No MAC found for a device called \"$deviceName\"."
+        exit 1
+      fi
+
+    elif grep -q -E '(--)mac=' <<< "$1" ; then
+      deviceMAC="${1#*=}"   ## was: deviceMAC="$(cut -d= -f2 <<< "$1")"
+
+    elif deviceMAC="$(grep -Eo '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' <<< "$1")"; then
+      # Gets the first sequence of six two-digit hexadecimal numbers delimited by a colon ":"
+      # and ignores any other leading or trailing characters.
+      :
+
+    else
+      announce_Status "No MAC or device name given." "WARNING"
+
+      # Might invoke exit at this place, but currently I plan to fallback
+      # to a content analysis of "~/.bluetooth-devices", which should hold
+      # name-MAC pairs of known devices as established for my script "blueon".
+
+    fi
+  else  # Use default device:
+echo -e "\e[1;37mIn branch for default device.\e[0;m"
+    :
+#   deviceMAC="00:02:3C:79:8A:E5"
+#   deviceName="Creative Stage Air"
+  fi
+}
+
+
+is_connected () {  #: Checks if the device with the given MAC is connected.
+  answer=
+  grep -sF 'Connected: yes' <<< "$(bluetoothctl info "$1")" > /dev/null && answer=0 || answer=1
+  return $answer
+}
+
+
+is_connected_name () {  #: check if the device with the given device name is connected.
+  answer=
+  if ! grep -s -E '([0-9A-Fa-f]{2}:){5}' <<< "$1"; then
+    get_MAC "$1"  # sets deviceMAC
+    is_connected "$deviceMAC"
+  else
+    is_connected "$1"
+  fi
+  return "$answer"
+}
+
+
+is_connected_MAC () {  #: check if the device with the given MAC is connected.
+  answer=
+  if grep -s -E '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' <<< "$1"; then
+    is_connected "$deviceMAC"
+  else
+    announce_Status "Wrong MAC."
+    answer=1
+    exit 1
+  fi
+  return "$answer"
+}
+
+
+reduce_equals_signs () {
+  if ! grep -F '==' <<< "$1"; then
+    simple_equals="$1"
+  else
+    simple_equals="$(sed -E 's:(-[a-z]{2,})==:\1=:' <<< "$1")"
+  fi
+}
+
+
+is_trusted () {  #: check if the given device is trusted.
+# Possible status:
+#		Paired: yes/no
+#		Trusted: yes/no
+#		Blocked: yes/no
+#		Connected: yes/no
+#
+  :
+}
+
+
+is_paired () {  #: check if the given device is paired.
+  :
+}
+
+
+connect_to () {
+  bluetoothctl connect "$1"
+}
+
+
+## MAIN: #########################################
+
+if [ "${LANG::2}" == "de" ]; then  # sets a flag variable for the user interface language.
+    UILANG="Deutsch"
+    ERROR="FEHLER"
+    WARNING="WARNUNG"
+    ERR_NO_EDITOR="FEHLER: Texteditor nicht gefunden."
+    ALREADY_EXISTS="Die Datei existiert schon."
+    DEVICES="Geräte"
+    MENU_PROMPT="Ihre Wahl: "
+    OVERWRITE="Überschreiben"
+    APPEND="Automatisch ergänzen"
+    CANCEL="Abbruch"
+    INVALID_CHOICE="Ungültige Auswahl!"
+    EDIT="Datei bearbeiten"
+    END="Beenden"
+    EXAMPLES="AUFRUFBEISPIELE:
+    $SCRIPT_NAME --name=\"Creative Stage Air\"
+    $SCRIPT_NAME --name=\"crea\"                        # Nimmt das 1. Geraet, mit 'crea' am Anfang.
+
+    $SCRIPT_NAME --complete=\"creative stage air\"         # Findet nur vollständige Namen.
+    $SCRIPT_NAME --complete --name=\"creative stage air\"  # Wie das vorige Beispiel.
+
+    $SCRIPT_NAME --cutout=\"stage\"                      # Nimmt das erste Gerät mit 'stage' im Namen.
+    $SCRIPT_NAME --cutout --name=\"stage\"               # Wie das vorherige Beispiel.
+
+    $SCRIPT_NAME --version                            # Programmname und Versionsnummer anzeigen.
+    $SCRIPT_NAME -#                                   # Nur die Versionsnummer anzeigen."
+else
+    UILANG="English"
+    ERROR="ERROR"
+    WARNING="WARNING"
+    ERR_NO_EDITOR="ERROR: Editor not found."
+    ALREADY_EXISTS="This file already exists."
+    DEVICES="Devices"
+    MENU_PROMPT="Your choice: "
+    OVERWRITE="Overwrite"
+    APPEND="Add automatically"
+    CANCEL="Cancel"
+    INVALID_CHOICE="Invalid choice!"
+    EDIT="Edit file"
+    END="Terminate"
+    EXAMPLES="EXAMPLES:
+    $SCRIPT_NAME 00:03:3E:89:8B:D4
+    $SCRIPT_NAME --mac=00:03:3E:89:8B:D4
+
+    $SCRIPT_NAME --name=\"Creative Stage Air\"
+    $SCRIPT_NAME --name=\"crea\"                          # Aims at 1st with 'crea' at name start.
+
+    $SCRIPT_NAME --complete=\"creative stage air\"           # Complete name is 'creative stage air'.
+    $SCRIPT_NAME --complete --name=\"creative stage air\"    # Like the previous example
+
+    $SCRIPT_NAME --cutout=\"stage\"                        # Takes 1st device with 'stage' in its name.
+    $SCRIPT_NAME --cutout --name=\"stage\"                 # Like the previous example
+
+    $SCRIPT_NAME --version                              # Shows program name and version number.
+    $SCRIPT_NAME -#                                     # Shows only the version number."
+fi
+
+
+### CORRECTING SOME WRONG PARAMETERS: ###############################
+
+firstPara="$1"  ## Corrects GNU-like parameters with only one leading dash "-":
+for i in '-name' '-complete' '-cutout' '-help' '-hilf' '-examples' '-beispiele' '-paired' '-trusted' '-version' '-list' '-edit' '-write';
+do
+   if grep -qE "^$i" <<< "$firstPara"; then
+      firstPara="-$firstPara"   ## A single dash "-" at the start becomes "--".
+      break
+   fi
+done
+
+
+## Reduces a first parameter like "--list=anything [...]" to the value "--list" in the variable firstPara":
+case "${firstPara%%=*}" in
+  '--help'|--hilf|--examples|--beispiele|--version|--list|--edit|--writer)
+    firstPara="${firstPara%%=*}";;   ## Cuts $firstPara after first "=".
+esac
+
+
+case "$firstPara" in
+    --hilf|--hilfe|--Hilfe)  # Calls German help regardless of system settings for language.
+        hilfe
+        exit 0
+        ;;
+    --help|-h)
+        if [ "$UILANG" == "Deutsch" ]; then
+            hilfe
+        else
+            help
+        fi
+        exit 0
+        ;;
+    --examples|--beispiele)
+        echo "$EXAMPLES"
+        exit
+        ;;
+    --list|-l)
+        grep -v '^#' < "$DEVICES_FILE" | more
+        exit 0
+        ;;
+    --edit|-e)
+        read --rp "blueswitch will ignore the file content, if the first line
+is not a comment containing the string \"blueswitch\"!
+
+Weiter mit [ENTER] …"
+
+        "$EDITOR" "$DEVICES_FILE"
+        exit 0
+        ;;
+    --write|-w)
+        if [ -s "$DEVICES_FILE" ]; then
+            announce_Status "$ALREADY_EXISTS" "$WARNING"
+            inform_about_devices_file
+            PS3="$MENU_PROMPT"
+            select option in "$OVERWRITE" "$APPEND" "$CANCEL"
+            do
+               case "$REPLY" in
+                 1)
+                   writeDevicesFile
+                   break
+                   ;;
+                 2)
+                   completeDevicesFile
+                   break
+                   ;;
+                 3)
+                   echo "$CANCEL"
+                   break
+                   ;;
+                 *)
+                   announce_Status "$INVALID_CHOICE" "$WARNING"
+               esac
+            done
+            exit
+        else
+            writeDevicesFile
+            cp -n /tmp/timezones ./timezones > /dev/null
+            rm -rf /tmp/timezones
+        fi
+        exit 0
+        ;;
+    --version|-V|-\#)   # For possible bug reports.
+        if [ "$1" = "--version" ] || [ "$1" = "-V" ]; then
+            echo -n "$SCRIPT_NAME "
+        fi
+        echo "$SCRIPT_VERSION"
+        exit 0
+        ;;
+esac
+
+parse_modus_parameter "$@"   # modus differentiates how complete or exact
+                             # the device name has to be given.
+
+get_MAC "$deviceIdentifier"  # deviceIdentifier is set by parse_modus_parameter().
+                             # It holds a value like: --name="a device name"
+
+if [ -z "$deviceMAC" ]; then
+  if [ -n "$deviceName" ]; then
+    get_MAC "$deviceName"
+    echo "$deviceName"
+    exit
+  fi
+fi
+
+if is_connected "$deviceMAC"; then
+  bluetoothctl disconnect "$deviceMAC"
+else
+  if ! service bluetooth status > /dev/null; then
+    sudo service bluetooth start
+  fi
+
+  bluetoothctl power on
+  bluetoothctl agent on
+
+  connect_to "$deviceMAC"
+fi
+
+exit 0
