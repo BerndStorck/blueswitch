@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# blueswitch 1.2.1 (Beta)
+# blueswitch 1.2.2 (Beta)
 #
 # Dates: 2023-04-12, 2023-04-14, 2023-04-17, 2023-04-20, 2023-04-26
 #
@@ -36,9 +36,9 @@
 
 # Static Values:
 SCRIPT_NAME="blueswitch"
-SCRIPT_VERSION="1.2.1 (Beta)"
-DEVICES_FILE="$HOME/.bluetooth-devices"
-# DEVICES_FILE="$HOME/.blutmp"  # To be activated For development tests.
+SCRIPT_VERSION="1.2.2 (Beta)"
+# DEVICES_FILE="$HOME/.bluetooth-devices"
+DEVICES_FILE="$HOME/.blutmp"  # To be activated For development tests.
 if command -v update-alternatives > /dev/null; then
 	EDITOR="$(update-alternatives --get-selections | grep '^editor' | tr -s ' ' | cut -d' ' -f3)"
 fi
@@ -144,15 +144,16 @@ AUFRUFFORMATE:
     $SCRIPT_NAME [--write|-w]                         # Die Konfigurationsdatei erzeugen oder ergänzen.
 
     $SCRIPT_NAME [--hilf|--help|-h]
-    $SCRIPT_NAME --examples                           # Zeigt einige Aufrufbeispiele an.
+    $SCRIPT_NAME --beispiele                          # Zeigt einige Aufrufbeispiele an.
     $SCRIPT_NAME [--version|-V|-#]
 
 $EXAMPLES
 
 AUFRUFPARAMETER:
-    --hilf  Zeigt die Hilfeseite an.
-    -#      Zeigt die Version von $SCRIPT_NAME an.
-    -l      Zeigt eine Liste der automatisch ermittelbaren Bluetooth-Geräte an.
+    --hilf  Die deutschsprachige Hilfeseite anzeigen.
+    --help  Zeigt abhängig von der Systemsprache die deutsche oder englische Hilfe an.
+    -#      Die Versionsnummer von $SCRIPT_NAME ausgeben.
+    -l      Die Geräteliste aus \"$DEVICES_FILE\" anzeigen.
 
 ALTERNATIVE SPRECHENDE AUFRUFPARAMETER:
     -h    --help
@@ -505,6 +506,7 @@ if [ "${LANG::2}" == "de" ]; then  # sets a flag variable for the user interface
     WARNING="WARNUNG"
     ERR_NO_EDITOR="FEHLER: Texteditor nicht gefunden."
     ALREADY_EXISTS="Die Datei existiert schon."
+    MISSING_FILE="Die Datei gibt es nicht."
     DEVICES="Geräte"
     MENU_PROMPT="Ihre Wahl: "
     OVERWRITE="Überschreiben"
@@ -531,6 +533,7 @@ else
     WARNING="WARNING"
     ERR_NO_EDITOR="ERROR: Editor not found."
     ALREADY_EXISTS="This file already exists."
+    MISSING_FILE="File does not exist."
     DEVICES="Devices"
     MENU_PROMPT="Your choice: "
     OVERWRITE="Overwrite"
@@ -594,7 +597,11 @@ case "$firstPara" in
         exit
         ;;
     --list|-l)
-        grep -v '^#' < "$DEVICES_FILE" | more
+        if [ -s "$DEVICES_FILE" ]; then
+          grep -v '^#' < "$DEVICES_FILE" | more
+        else
+          announce_Status "$MISSING_FILE" "$WARNING"
+        fi
         exit 0
         ;;
     --edit|-e)
@@ -633,8 +640,6 @@ Weiter mit [ENTER] …"
             exit
         else
             writeDevicesFile
-            cp -n /tmp/timezones ./timezones > /dev/null
-            rm -rf /tmp/timezones
         fi
         exit 0
         ;;
