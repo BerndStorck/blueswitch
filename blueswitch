@@ -1,8 +1,8 @@
 #! /bin/bash
 #
-# blueswitch 1.2.2 (Beta)
+# blueswitch 1.2.3 (Beta)
 #
-# Dates: 2023-04-12, 2023-04-14, 2023-04-17, 2023-04-20, 2023-04-26
+# Dates: 2023-04-12, 2023-04-14, 2023-04-17, 2023-04-20, 2023-04-26, 2023-04-27
 #
 # Purpose: Connects to a not connected Bluetooth device or disconnects
 # from a connected device.
@@ -36,12 +36,42 @@
 
 # Static Values:
 SCRIPT_NAME="blueswitch"
-SCRIPT_VERSION="1.2.2 (Beta)"
-# DEVICES_FILE="$HOME/.bluetooth-devices"
-DEVICES_FILE="$HOME/.blutmp"  # To be activated For development tests.
-if command -v update-alternatives > /dev/null; then
-	EDITOR="$(update-alternatives --get-selections | grep '^editor' | tr -s ' ' | cut -d' ' -f3)"
-fi
+SCRIPT_VERSION="1.2.3 (Beta)"
+DEVICES_FILE="$HOME/.bluetooth-devices"
+# DEVICES_FILE="$HOME/.blutmp"  # To be activated For development tests.
+
+
+function setDefaultPrograms {
+# Determines the pager and editor to use with update-alternatives, 
+# but if update-alternatives is not available, searchs by itself for 
+# a pager and editor.
+
+  if command -v update-alternatives > /dev/null; then
+
+    EDITOR="$( update-alternatives --get-selections | grep '^editor'  | tr -s ' ' | cut -d' ' -f3  )"
+    PAGER="$(  update-alternatives --get-selections | grep -w 'pager' | tr -s ' ' | cut -d' ' -f3 )"
+
+  else
+    EDITOR="vi"  # Fallback program if no other editor is available.
+    for i in nano joe jupp jed vim nvim ne kak vis leafpad gedit kwrite pluma scite subl geany kate emacs;
+    do
+      if command -v "$i" > /dev/null; then
+        EDITOR="$i"
+        break
+      fi
+    done
+    
+    PAGER="cat"  # Fallback program if no pager is available.
+    for i in most less more;
+    do
+      if command -v "$i" > /dev/null; then
+        PAGER="$i"
+        break
+      fi
+    done
+
+  fi
+}
 
 # echo "$1"
 
@@ -187,7 +217,7 @@ KONFIGURATIONSDATEI
  ersten Aufrufparameter, hier \"crea\", übereinstimmt, und zwar
  unabhängig von Groß- und Kleinschreibung.
 
-" | more
+" | "$PAGER"
 }
 
 help () { #: English help text.
@@ -258,7 +288,7 @@ CONFIGURATION FILE
  the first call parameter, here \"crea\", regardless of upper and lower
  case.
 
-" | more
+" | "$PAGER"
 }
 
 
@@ -499,6 +529,8 @@ connect_to () {
 
 
 ## MAIN: #########################################
+
+setDefaultPrograms  ## EDITOR and PAGER
 
 if [ "${LANG::2}" == "de" ]; then  # sets a flag variable for the user interface language.
     UILANG="Deutsch"
