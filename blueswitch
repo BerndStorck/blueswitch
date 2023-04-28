@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# blueswitch 1.2.3 (Beta)
+# blueswitch 1.2.4 (Beta)
 #
 # Dates: 2023-04-12, 2023-04-14, 2023-04-17, 2023-04-20, 2023-04-26, 2023-04-27
 #
@@ -36,14 +36,14 @@
 
 # Static Values:
 SCRIPT_NAME="blueswitch"
-SCRIPT_VERSION="1.2.3 (Beta)"
+SCRIPT_VERSION="1.2.4 (Beta)"
 DEVICES_FILE="$HOME/.bluetooth-devices"
 # DEVICES_FILE="$HOME/.blutmp"  # To be activated For development tests.
 
 
 function setDefaultPrograms {
-# Determines the pager and editor to use with update-alternatives, 
-# but if update-alternatives is not available, searchs by itself for 
+# Determines the pager and editor to use with update-alternatives,
+# but if update-alternatives is not available, searchs by itself for
 # a pager and editor.
 
   if command -v update-alternatives > /dev/null; then
@@ -60,7 +60,7 @@ function setDefaultPrograms {
         break
       fi
     done
-    
+
     PAGER="cat"  # Fallback program if no pager is available.
     for i in most less more;
     do
@@ -133,8 +133,8 @@ $devices_list" > "$DEVICES_FILE"
 }
 
 
-scan4Devices () {
-# Aktuell erreichbare Geraete suchen.
+scan4Devices () {  # With special greetings from blueon.
+# Search currently accessible devices.
   bluetoothctl scan on & BPID=$!
   sleep "${1}s"
   kill "$BPID"  # Suche beenden.
@@ -144,8 +144,7 @@ scan4Devices () {
 
 inform_about_devices_file () {
   plotLine
-  device_rows="$( grep -v '^#' "$DEVICES_FILE" )" # | grep -iE '^[0-9A-F]{2}' )"
-  rows="$(wc -l <<< "$device_rows")"
+  rows="$( grep -vc '^#' "$DEVICES_FILE" | grep -iE '^[0-9A-F]{2}:' )"
   echo "$(ls -1sh "$DEVICES_FILE") - $DEVICES: $rows"
   echo "$line"
   more "$DEVICES_FILE"
@@ -292,16 +291,29 @@ CONFIGURATION FILE
 }
 
 
+get_line_length () {
+  if [ -n "$COLUMNS" ]; then
+    line_length="$COLUMNS"
+  elif command -v tput > /dev/null; then
+    line_length="$(tput cols)"
+  elif command -v stty > /dev/null; then
+    line_length="$(stty size | cut -d' ' -f2)"
+  else
+    line_length=80
+  fi
+}
+
+
 plotLine () {
   if [ -z "$1" ]; then
     line_element='-'
-    line_lenght="$(tput cols)"
+    get_line_length
   else
     line_element="$1"
-    [ -z "$2" ] && line_lenght="$(tput cols)" || line_lenght="$2"
+    [ -z "$2" ] && get_line_length || line_length="$2"
   fi
   line=
-  for i in $(seq "$line_lenght");
+  for i in $(seq "$line_length");
   do
     line="${line}$line_element"
   done
@@ -333,7 +345,7 @@ reduceSpaces () {
   reduce_tmp="${reduce_tmp#"${reduce_tmp%%[![:blank:]]*}"}"
   reduce_tmp="${reduce_tmp%"${reduce_tmp##*[![:blank:]]}"}"
   reduce_tmp="$( tr -s ' ' <<< "$reduce_tmp" )"
- 	eval "$1=\"$reduce_tmp\""
+  eval "$1=\"$reduce_tmp\""
   unset -v reduce_tmp
 }
 
@@ -637,7 +649,7 @@ case "$firstPara" in
         exit 0
         ;;
     --edit|-e)
-        read --rp "blueswitch will ignore the file content, if the first line
+        read -rp "blueswitch will ignore the file content, if the first line
 is not a comment containing the string \"blueswitch\"!
 
 Weiter mit [ENTER] …"
